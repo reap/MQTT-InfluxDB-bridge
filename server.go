@@ -19,7 +19,7 @@ var dbURL string
 
 func receiveMQTTMessage(receiveChannel chan MQTT.Message) {
 
-	matcher, _ := regexp.Compile("/home/([a-z-]+)/([a-z-]+)")
+	matcher, _ := regexp.Compile("/mini-iot/([a-z-]+)/([a-z-]+)")
 
 	log.Println("goroutine: Starting to listen for requests")
 	/*
