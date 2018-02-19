@@ -26,7 +26,6 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 
 	matcher, _ := regexp.Compile("/mini-iot/([a-z-]+)/([a-z-]+)")
 
-	log.Println("goroutine: Starting to listen for requests")
 	/*
 	  The incoming temperature/humidity messages are from topic like
 	    "/home/[room]/[sensor]" for example "/home/computer-room/temperature"
@@ -37,16 +36,21 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 			log.Info("Context cancelled, quitting listener...")
 			return
 		case message := <-receiveChannel:
-			log.Info("Received topic: %s, message: %s\n", message.Topic(), string(message.Payload()))
+			msgLog := log.WithFields(log.Fields{
+				"topic":   message.Topic(),
+				"payload": string(message.Payload()),
+			})
+
+			msgLog.Info("Received message")
 
 			if !matcher.MatchString(message.Topic()) {
-				log.Info("Unkown topic: %s in message: %s, ignoring it...\n", message.Topic(), string(message.Payload()))
+				msgLog.Info("Unknown topic")
 				continue
 			}
 
-			log.Info("Matched topic, continue to get the topic-values")
+			msgLog.Info("Matched topic, continue to get the topic-values")
 			matches := matcher.FindStringSubmatch(message.Topic())
-			log.Info(matches)
+			msgLog.Info(matches)
 
 			room := matches[1]
 			sensor := matches[2]
@@ -54,7 +58,9 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 			payload, err := strconv.ParseFloat(string(message.Payload()), 32)
 
 			if err != nil {
-				log.Infof("Failed to parse number for payload: %v", err)
+				msgLog.WithFields(log.Fields{
+					"error": err,
+				}).Info("Failed to parse number for payload")
 				continue
 			}
 
@@ -89,7 +95,7 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 
 			// Write the batch
 			if err := c.Write(bp); err != nil {
-				log.Fatal(err)
+				msgLog.Fatal(err)
 			}
 		default:
 			// log.Println("No messages")
@@ -154,6 +160,7 @@ func main() {
 		log.Info("Listener returned")
 	}(ctx, receiveChannel)
 
+	time.Sleep(2 * time.Second)
 	log.Infof("Listener running")
 	wg.Wait()
 }
