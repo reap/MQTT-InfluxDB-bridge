@@ -60,7 +60,7 @@ func sendValueToDatabase(database string, source string, sensor string, value fl
 
 }
 
-func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
+func receiveMQTTMessage(ctx context.Context, receiveChannel <-chan MQTT.Message) {
 	for {
 		select {
 		case <-ctx.Done():
@@ -95,7 +95,7 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 	}
 }
 
-func createMQTTClient(brokerURL string, channel chan MQTT.Message) {
+func createMQTTClient(brokerURL string, channel chan<- MQTT.Message) {
 	opts := MQTT.NewClientOptions()
 	opts.AddBroker(brokerURL)
 	opts.SetClientID("go-server")
