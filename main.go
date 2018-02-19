@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
-	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"syscall"
 	"time"
@@ -22,14 +22,45 @@ import (
 var brokerURL string
 var dbURL string
 
+func sendValueToDatabase(database string, source string, sensor string, value float64) {
+	c, err := client.NewHTTPClient(client.HTTPConfig{
+		Addr: dbURL,
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer c.Close()
+
+	// Create a new point batch
+	bp, err := client.NewBatchPoints(client.BatchPointsConfig{
+		Database:  database,
+		Precision: "s",
+	})
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	// Create a point and add to batch
+	tags := map[string]string{"source": source}
+
+	fields := map[string]interface{}{
+		"value": value,
+	}
+
+	pt, err := client.NewPoint(sensor, tags, fields, time.Now())
+	if err != nil {
+		log.Fatal(err)
+	}
+	bp.AddPoint(pt)
+
+	// Write the batch
+	if err := c.Write(bp); err != nil {
+		log.Fatal(err)
+	}
+
+}
+
 func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
-
-	matcher, _ := regexp.Compile("/mini-iot/([a-z-]+)/([a-z-]+)")
-
-	/*
-	  The incoming temperature/humidity messages are from topic like
-	    "/home/[room]/[sensor]" for example "/home/computer-room/temperature"
-	*/
 	for {
 		select {
 		case <-ctx.Done():
@@ -43,17 +74,11 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 
 			msgLog.Info("Received message")
 
-			if !matcher.MatchString(message.Topic()) {
-				msgLog.Info("Unknown topic")
-				continue
-			}
+			topicParts := strings.Split(message.Topic(), "/")
 
-			msgLog.Info("Matched topic, continue to get the topic-values")
-			matches := matcher.FindStringSubmatch(message.Topic())
-			msgLog.Info(matches)
-
-			room := matches[1]
-			sensor := matches[2]
+			database := topicParts[0]
+			source := topicParts[1]
+			sensor := strings.Join(topicParts[2:len(topicParts)], "-")
 
 			payload, err := strconv.ParseFloat(string(message.Payload()), 32)
 
@@ -63,44 +88,30 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 				}).Info("Failed to parse number for payload")
 				continue
 			}
-
-			c, err := client.NewHTTPClient(client.HTTPConfig{
-				Addr: dbURL,
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			// Create a new point batch
-			bp, err := client.NewBatchPoints(client.BatchPointsConfig{
-				Database:  "Temperatures",
-				Precision: "s",
-			})
-			if err != nil {
-				log.Fatal(err)
-			}
-
-			// Create a point and add to batch
-			tags := map[string]string{"room": room, "sensor": sensor}
-
-			fields := map[string]interface{}{
-				"value": payload,
-			}
-
-			pt, err := client.NewPoint("temperature", tags, fields, time.Now())
-			if err != nil {
-				log.Fatal(err)
-			}
-			bp.AddPoint(pt)
-
-			// Write the batch
-			if err := c.Write(bp); err != nil {
-				msgLog.Fatal(err)
-			}
+			sendValueToDatabase(database, source, sensor, payload)
 		default:
-			// log.Println("No messages")
 		}
 
+	}
+}
+
+func createMQTTClient(brokerURL string, channel chan MQTT.Message) {
+	opts := MQTT.NewClientOptions()
+	opts.AddBroker(brokerURL)
+	opts.SetClientID("go-server")
+
+	opts.SetDefaultPublishHandler(func(client MQTT.Client, msg MQTT.Message) {
+		channel <- msg
+	})
+
+	client := MQTT.NewClient(opts)
+	if token := client.Connect(); token.Wait() && token.Error() != nil {
+		panic(token.Error())
+	}
+
+	if token := client.Subscribe("#", 0, nil); token.Wait() && token.Error() != nil {
+		fmt.Println(token.Error())
+		os.Exit(1)
 	}
 }
 
@@ -113,25 +124,9 @@ func main() {
 	log.Infof("Using broker %s", brokerURL)
 	log.Infof("Using database %s", dbURL)
 
-	opts := MQTT.NewClientOptions()
-	opts.AddBroker(brokerURL)
-	opts.SetClientID("go-server")
-
 	receiveChannel := make(chan MQTT.Message)
 
-	opts.SetDefaultPublishHandler(func(client MQTT.Client, msg MQTT.Message) {
-		receiveChannel <- msg
-	})
-
-	client := MQTT.NewClient(opts)
-	if token := client.Connect(); token.Wait() && token.Error() != nil {
-		panic(token.Error())
-	}
-
-	if token := client.Subscribe("#", 0, nil); token.Wait() && token.Error() != nil {
-		fmt.Println(token.Error())
-		os.Exit(1)
-	}
+	createMQTTClient(brokerURL, receiveChannel)
 
 	var wg sync.WaitGroup
 
