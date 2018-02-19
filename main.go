@@ -151,16 +151,15 @@ func main() {
 		wg.Done()
 	}()
 
+	wg.Add(1)
 	// start listening to input channel
 	go func(ctx context.Context, channel chan MQTT.Message) {
 		log.Info("Starting listener")
-		wg.Add(1)
 		defer wg.Done()
 		receiveMQTTMessage(ctx, channel)
 		log.Info("Listener returned")
 	}(ctx, receiveChannel)
 
-	time.Sleep(2 * time.Second)
 	log.Infof("Listener running")
 	wg.Wait()
 }
