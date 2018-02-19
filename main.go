@@ -7,6 +7,7 @@ import (
 	"os"
 	"regexp"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
@@ -100,10 +101,10 @@ func main() {
 	opts.AddBroker(brokerURL)
 	opts.SetClientID("go-server")
 
-	reveiceChannel := make(chan MQTT.Message)
+	receiveChannel := make(chan MQTT.Message)
 
 	opts.SetDefaultPublishHandler(func(client MQTT.Client, msg MQTT.Message) {
-		reveiceChannel <- msg
+		receiveChannel <- msg
 	})
 
 	client := MQTT.NewClient(opts)
@@ -116,8 +117,13 @@ func main() {
 		os.Exit(1)
 	}
 	log.Println("starting go-routine")
-	go receiveMQTTMessage(reveiceChannel)
 
-	for {
-	}
+	var wg sync.WaitGroup
+	// start listening to input channel
+	go func(channel chan MQTT.Message) {
+		wg.Add(1)
+		defer wg.Done()
+		receiveMQTTMessage(channel)
+	}(receiveChannel)
+	wg.Wait()
 }
