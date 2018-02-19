@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
-	"log"
 	"os"
+	"os/signal"
 	"regexp"
 	"strconv"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
+
+	log "github.com/sirupsen/logrus"
 
 	MQTT "github.com/eclipse/paho.mqtt.golang"
 )
@@ -18,7 +22,7 @@ import (
 var brokerURL string
 var dbURL string
 
-func receiveMQTTMessage(receiveChannel chan MQTT.Message) {
+func receiveMQTTMessage(ctx context.Context, receiveChannel chan MQTT.Message) {
 
 	matcher, _ := regexp.Compile("/mini-iot/([a-z-]+)/([a-z-]+)")
 
@@ -28,13 +32,21 @@ func receiveMQTTMessage(receiveChannel chan MQTT.Message) {
 	    "/home/[room]/[sensor]" for example "/home/computer-room/temperature"
 	*/
 	for {
-		message := <-receiveChannel
-		log.Printf("Received topic: %s, message: %s\n", message.Topic(), string(message.Payload()))
+		select {
+		case <-ctx.Done():
+			log.Info("Context cancelled, quitting listener...")
+			return
+		case message := <-receiveChannel:
+			log.Info("Received topic: %s, message: %s\n", message.Topic(), string(message.Payload()))
 
-		if matcher.MatchString(message.Topic()) {
-			log.Print("Matched topic, continue to get the topic-values")
+			if !matcher.MatchString(message.Topic()) {
+				log.Info("Unkown topic: %s in message: %s, ignoring it...\n", message.Topic(), string(message.Payload()))
+				continue
+			}
+
+			log.Info("Matched topic, continue to get the topic-values")
 			matches := matcher.FindStringSubmatch(message.Topic())
-			log.Print(matches)
+			log.Info(matches)
 
 			room := matches[1]
 			sensor := matches[2]
@@ -42,8 +54,7 @@ func receiveMQTTMessage(receiveChannel chan MQTT.Message) {
 			payload, err := strconv.ParseFloat(string(message.Payload()), 32)
 
 			if err != nil {
-				log.Print("Failed to parse number for payload")
-				log.Print(err)
+				log.Infof("Failed to parse number for payload: %v", err)
 				continue
 			}
 
@@ -80,9 +91,8 @@ func receiveMQTTMessage(receiveChannel chan MQTT.Message) {
 			if err := c.Write(bp); err != nil {
 				log.Fatal(err)
 			}
-
-		} else {
-			log.Printf("Unkown topic: %s in message: %s, ignoring it...\n", message.Topic(), string(message.Payload()))
+		default:
+			// log.Println("No messages")
 		}
 
 	}
@@ -94,8 +104,8 @@ func main() {
 
 	flag.Parse()
 
-	fmt.Println(brokerURL)
-	fmt.Println(dbURL)
+	log.Infof("Using broker %s", brokerURL)
+	log.Infof("Using database %s", dbURL)
 
 	opts := MQTT.NewClientOptions()
 	opts.AddBroker(brokerURL)
@@ -116,14 +126,34 @@ func main() {
 		fmt.Println(token.Error())
 		os.Exit(1)
 	}
-	log.Println("starting go-routine")
 
 	var wg sync.WaitGroup
+
+	// Handle interrupt and term signals gracefully
+	ctx, cancel := context.WithCancel(context.Background())
+
+	sigs := make(chan os.Signal, 1)
+	signal.Notify(sigs, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		wg.Add(1)
+		select {
+		case <-sigs:
+			cancel()
+		case <-ctx.Done():
+		}
+		wg.Done()
+	}()
+
 	// start listening to input channel
-	go func(channel chan MQTT.Message) {
+	go func(ctx context.Context, channel chan MQTT.Message) {
+		log.Info("Starting listener")
 		wg.Add(1)
 		defer wg.Done()
-		receiveMQTTMessage(channel)
-	}(receiveChannel)
+		receiveMQTTMessage(ctx, channel)
+		log.Info("Listener returned")
+	}(ctx, receiveChannel)
+
+	log.Infof("Listener running")
 	wg.Wait()
 }
