@@ -88,7 +88,7 @@ func receiveMQTTMessage(receiveChannel chan MQTT.Message) {
 }
 
 func main() {
-	flag.StringVar(&brokerURL, "broker", "tcp://localhost", "MQTT-broker url")
+	flag.StringVar(&brokerURL, "broker", "tcp://localhost:1883", "MQTT-broker url")
 	flag.StringVar(&dbURL, "db", "http://localhost:8086", "Influx database connection url")
 
 	flag.Parse()
