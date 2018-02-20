@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"flag"
 	"fmt"
 	"os"
 	"os/signal"
@@ -13,6 +12,9 @@ import (
 	"time"
 
 	"github.com/influxdata/influxdb/client/v2"
+
+	"github.com/spf13/pflag"
+	"github.com/spf13/viper"
 
 	log "github.com/sirupsen/logrus"
 
@@ -116,13 +118,7 @@ func createMQTTClient(brokerURL string, channel chan<- MQTT.Message) {
 }
 
 func main() {
-	flag.StringVar(&brokerURL, "broker", "tcp://localhost:1883", "MQTT-broker url")
-	flag.StringVar(&dbURL, "db", "http://localhost:8086", "Influx database connection url")
-
-	flag.Parse()
-
-	log.Infof("Using broker %s", brokerURL)
-	log.Infof("Using database %s", dbURL)
+	readConfiguration()
 
 	receiveChannel := make(chan MQTT.Message)
 
@@ -157,4 +153,22 @@ func main() {
 
 	log.Infof("Listener running")
 	wg.Wait()
+}
+
+func readConfiguration() {
+	// allow setting values also with commandline flags
+	pflag.String("broker", "tcp://localhost:1883", "MQTT-broker url")
+	viper.BindPFlag("broker", pflag.Lookup("broker"))
+
+	pflag.String("db", "http://localhost:8086", "Influx database connection url")
+	viper.BindPFlag("db", pflag.Lookup("db"))
+
+	// parse values from environment variables
+	viper.AutomaticEnv()
+
+	brokerURL = viper.GetString("broker")
+	dbURL = viper.GetString("db")
+
+	log.Infof("Using broker %s", brokerURL)
+	log.Infof("Using database %s", dbURL)
 }
