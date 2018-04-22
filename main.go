@@ -83,19 +83,23 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel <-chan MQTT.Message)
 
 			topicParts := strings.Split(message.Topic(), "/")
 
-			database := topicParts[1]
-			source := topicParts[2]
-			sensor := strings.Join(topicParts[3:len(topicParts)], "-")
+			if len(topicParts) >= 3 {
+				database := topicParts[1]
+				source := topicParts[2]
+				sensor := strings.Join(topicParts[3:len(topicParts)], "-")
 
-			payload, err := strconv.ParseFloat(string(message.Payload()), 32)
+				payload, err := strconv.ParseFloat(string(message.Payload()), 32)
 
-			if err != nil {
-				msgLog.WithFields(log.Fields{
-					"error": err,
-				}).Info("Failed to parse number for payload")
-				continue
+				if err != nil {
+					msgLog.WithFields(log.Fields{
+						"error": err,
+					}).Info("Failed to parse number for payload")
+					continue
+				}
+				sendValueToDatabase(database, source, sensor, payload)
+			} else {
+				msgLog.Info("Message did not contain expected topic parts, skipping it")
 			}
-			sendValueToDatabase(database, source, sensor, payload)
 		default:
 		}
 
