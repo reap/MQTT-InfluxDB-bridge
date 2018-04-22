@@ -25,11 +25,16 @@ var brokerURL string
 var dbURL string
 
 func sendValueToDatabase(database string, source string, sensor string, value float64) {
+	msgLog := log.WithFields(log.Fields{
+		"database": database,
+		"source":   source,
+		"sensor":   sensor,
+	})
 	c, err := client.NewHTTPClient(client.HTTPConfig{
 		Addr: dbURL,
 	})
 	if err != nil {
-		log.Fatal(err)
+		msgLog.Fatal(err)
 	}
 	defer c.Close()
 
@@ -39,7 +44,7 @@ func sendValueToDatabase(database string, source string, sensor string, value fl
 		Precision: "s",
 	})
 	if err != nil {
-		log.Fatal(err)
+		msgLog.Fatal(err)
 	}
 
 	// Create a point and add to batch
@@ -51,13 +56,13 @@ func sendValueToDatabase(database string, source string, sensor string, value fl
 
 	pt, err := client.NewPoint(sensor, tags, fields, time.Now())
 	if err != nil {
-		log.Fatal(err)
+		msgLog.Fatal(err)
 	}
 	bp.AddPoint(pt)
 
 	// Write the batch
 	if err := c.Write(bp); err != nil {
-		log.Fatal(err)
+		msgLog.Fatal(err)
 	}
 
 }
@@ -78,9 +83,9 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel <-chan MQTT.Message)
 
 			topicParts := strings.Split(message.Topic(), "/")
 
-			database := topicParts[0]
-			source := topicParts[1]
-			sensor := strings.Join(topicParts[2:len(topicParts)], "-")
+			database := topicParts[1]
+			source := topicParts[2]
+			sensor := strings.Join(topicParts[3:len(topicParts)], "-")
 
 			payload, err := strconv.ParseFloat(string(message.Payload()), 32)
 
