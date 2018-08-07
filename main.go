@@ -100,7 +100,6 @@ func receiveMQTTMessage(ctx context.Context, receiveChannel <-chan MQTT.Message)
 			} else {
 				msgLog.Info("Message did not contain expected topic parts, skipping it")
 			}
-		default:
 		}
 
 	}
